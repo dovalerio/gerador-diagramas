@@ -189,32 +189,89 @@ gerador-diagramas/
 ├── templates/               # YAMLs de exemplo por tipo de diagrama
 └── app/
     ├── .env.example
-    ├── app.py               # entry point
+    ├── app.py               # entry point Flask
     ├── requirements.txt
     ├── api/
-    │   └── routes.py        # endpoints Flask
+    │   └── routes.py        # endpoints v1 (YAML→PNG) e v2 (Mermaid/YAML→SVG)
     ├── config/
     │   └── settings.py
-    ├── core/
-    │   ├── ai_service.py    # integração OpenRouter
+    ├── core/                # pipeline v1 (legado, mantido)
+    │   ├── ai_service.py
     │   ├── diagram_manager.py
-    │   ├── language_utils.py
     │   └── diagram_generators/
-    │       ├── architecture_diagram.py
-    │       ├── class_diagram.py
-    │       ├── component_diagram.py
-    │       ├── deployment_diagram.py
-    │       ├── sequence_diagram.py
-    │       └── use_case_diagram.py
+    ├── domain/              # modelo canônico de grafo
+    │   └── models.py        # GraphNode, GraphEdge, GraphModel
+    ├── parsers/             # entrada → GraphModel
+    │   ├── mermaid/
+    │   │   └── parser.py    # flowchart, sequenceDiagram, classDiagram
+    │   └── yaml_parser/
+    │       └── adapters.py  # YAML existente → GraphModel
+    ├── llm/                 # cliente LLM com retry/timeout
+    │   ├── client.py
+    │   └── prompt_builder.py
+    ├── layout/              # GraphModel → posições pixel via dot -Tplain
+    │   └── graphviz/
+    │       └── engine.py
+    ├── render/              # LayoutResult → SVG semântico com ARIA
+    │   └── svg_renderer.py
+    ├── accessibility/       # helpers de atributos ARIA
+    │   └── aria.py
+    ├── services/            # orquestração parse→layout→render
+    │   └── diagram_service.py
     ├── static/
-    │   ├── script.js
+    │   ├── script.js        # lógica v1 + integração v2
+    │   ├── state.js         # DiagramState (seleção/foco de nós)
+    │   ├── accessibility.js # anunciador de leitor de tela
+    │   ├── tree.js          # painel de árvore com navegação por teclado
+    │   ├── presentation.js  # modo de apresentação SVG
     │   └── style.css
     ├── templates/
     │   └── index.html
     └── tests/
+        ├── test_domain.py
         ├── test_generators.py
-        └── test_routes.py
+        ├── test_parsers.py
+        ├── test_routes.py
+        └── test_services.py
 ```
+
+---
+
+## API v2 — SVG acessível
+
+A v2 aceita Mermaid DSL ou YAML e retorna SVG semântico com atributos ARIA em cada nó.
+
+### `POST /api/v2/render`
+
+```json
+{ "source": "flowchart LR\n  A[Cliente] --> B[API]\n  B --> C[(DB)]" }
+```
+
+Resposta:
+```json
+{ "svg": "<svg ...>...</svg>", "title": "", "alt": "" }
+```
+
+### `POST /api/v2/generate`
+
+```json
+{ "prompt": "sistema de e-commerce com frontend, API e banco de dados" }
+```
+
+Resposta:
+```json
+{ "mermaid": "flowchart LR\n  ...", "svg": "<svg ...>", "title": "", "alt": "" }
+```
+
+Tipos de diagrama Mermaid suportados: `flowchart`, `graph`, `sequenceDiagram`, `classDiagram`.
+
+### Navegação acessível no SVG
+
+- **Tab / Shift+Tab**: mover entre nós
+- **Enter / Espaço**: selecionar nó (destaca conexões)
+- **← → ↑ ↓** no SVG: navegar para nó conectado
+- **Escape**: limpar seleção
+- Painel lateral com lista de nós (`role="tree"`) navegável com setas
 
 ---
 
@@ -224,6 +281,8 @@ gerador-diagramas/
 cd app
 python -m pytest tests/ -v
 ```
+
+Os testes do `test_services.py` que exercitam o layout engine são ignorados automaticamente quando `dot` (Graphviz) não está no PATH.
 
 ---
 

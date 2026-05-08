@@ -63,10 +63,10 @@ def _parse_edge_label(arrow_raw: str) -> Tuple[str, str]:
 
 # ── flowchart parser ──────────────────────────────────────────────────────────
 
-# Matches the full arrow section including optional inline label:
-#   --> , -->|text| , -. -> , === ==> , etc.
-_FULL_ARROW_RE = re.compile(
-    r'(={2,}(?:[^=].*?)?={2,}>|-\.->|--(?:\|[^|]*\|)?->?|->|---)'
+# Splits on arrow-only token (no embedded label).
+# Order matters: longer patterns must come first.
+_ARROW_ONLY_RE = re.compile(
+    r'(={2,}>|-\.->|-->>|-->|---|->>|->)'
 )
 
 _EDGE_COUNTER = 0
@@ -78,12 +78,22 @@ def _next_edge_id() -> str:
     return f"e{_EDGE_COUNTER}"
 
 
+def _strip_inline_label(token: str) -> Tuple[str, str]:
+    """Strip a leading |label| prefix from a node token.
+    Returns (label, remaining_node_token).
+    e.g. '|SQL| C[(Banco)]' → ('SQL', 'C[(Banco)]')
+    """
+    m = re.match(r'^\s*\|([^|]*)\|\s*(.*)', token)
+    if m:
+        return m.group(1).strip(), m.group(2).strip()
+    return '', token.strip()
+
+
 def _parse_flowchart(lines: list[str]) -> GraphModel:
     global _EDGE_COUNTER
     _EDGE_COUNTER = 0
     model = GraphModel(metadata={'type': 'flowchart'})
 
-    # Standalone node definition: id[label] on its own line
     _STANDALONE_RE = re.compile(r'^\s*([A-Za-z0-9_]+)(\[.*?\]|\(.*?\)|\{.*?\})\s*$')
 
     for raw in lines:
@@ -91,50 +101,55 @@ def _parse_flowchart(lines: list[str]) -> GraphModel:
         if not line or line.startswith('%%'):
             continue
 
-        # Split by full arrow to detect edges
-        parts = _FULL_ARROW_RE.split(line)
+        parts = _ARROW_ONLY_RE.split(line)
         if len(parts) >= 3:
-            # parts: [left, arrow, right, arrow, right, ...]
-            tokens = []
-            i = 0
-            while i < len(parts):
-                tokens.append(('node', parts[i].strip()))
-                if i + 1 < len(parts):
-                    tokens.append(('arrow', parts[i + 1].strip()))
-                i += 2
+            # parts alternates: [node_token, arrow, node_token, arrow, ...]
+            raw_nodes: list[str] = []
+            arrows: list[str] = []
+            for i, part in enumerate(parts):
+                if i % 2 == 0:
+                    raw_nodes.append(part.strip())
+                else:
+                    arrows.append(part.strip())
 
-            prev_id: Optional[str] = None
-            for kind, value in tokens:
-                if kind == 'node' and value:
-                    nid, label, shape = _parse_node_token(value)
-                    if nid not in model.nodes:
-                        model.nodes[nid] = GraphNode(id=nid, label=label, shape=shape)
-                    elif label != nid:
-                        # Update label/shape if we now have more info
-                        model.nodes[nid].label = label
-                        model.nodes[nid].shape = shape
-                    prev_id = nid
-                elif kind == 'arrow':
-                    # peek at the next node token
-                    pass
+            # Resolve nodes: node tokens may have a leading |label| when they
+            # are the right-hand side of a labelled arrow (B -->|lbl| C).
+            # The label belongs to the preceding edge, not the node.
+            edge_labels: list[str] = [''] * len(arrows)
+            resolved: list[str] = [raw_nodes[0]]   # left side never has prefix
+            for idx in range(len(arrows)):
+                right_raw = raw_nodes[idx + 1] if idx + 1 < len(raw_nodes) else ''
+                lbl, node_tok = _strip_inline_label(right_raw)
+                if lbl:
+                    edge_labels[idx] = lbl
+                resolved.append(node_tok)
 
-            # Build edges between consecutive node pairs
-            node_ids = [v for k, v in tokens if k == 'node' and v]
-            arrow_tokens = [v for k, v in tokens if k == 'arrow']
-            for idx, arrow in enumerate(arrow_tokens):
-                if idx < len(node_ids) - 1:
-                    style, label = _parse_edge_label(arrow)
-                    src_id = _parse_node_token(node_ids[idx])[0]
-                    tgt_id = _parse_node_token(node_ids[idx + 1])[0]
+            # Register nodes
+            node_ids: list[str] = []
+            for tok in resolved:
+                if not tok:
+                    node_ids.append('')
+                    continue
+                nid, label, shape = _parse_node_token(tok)
+                if nid not in model.nodes:
+                    model.nodes[nid] = GraphNode(id=nid, label=label, shape=shape)
+                elif label != nid:
+                    model.nodes[nid].label = label
+                    model.nodes[nid].shape = shape
+                node_ids.append(nid)
+
+            # Build edges
+            for idx, arrow in enumerate(arrows):
+                if idx < len(node_ids) - 1 and node_ids[idx] and node_ids[idx + 1]:
+                    style, _ = _parse_edge_label(arrow)
                     model.edges.append(GraphEdge(
                         id=_next_edge_id(),
-                        source=src_id,
-                        target=tgt_id,
-                        label=label,
+                        source=node_ids[idx],
+                        target=node_ids[idx + 1],
+                        label=edge_labels[idx],
                         style=style,
                     ))
         else:
-            # Standalone node definition
             m = _STANDALONE_RE.match(line)
             if m:
                 nid, label, shape = _parse_node_token(line.strip())
@@ -147,7 +162,7 @@ def _parse_flowchart(lines: list[str]) -> GraphModel:
 # ── sequenceDiagram parser ────────────────────────────────────────────────────
 
 _SEQ_MSG_RE = re.compile(
-    r'^(\w[\w\s]*)(->>?--?|-->>|->|-x|-->)\s*(\w[\w\s]*):\s*(.*)$'
+    r'^(\w[\w\s]*?)\s*(->>|-->>|->|-->|-x|--x)\s*(\w[\w\s]*):\s*(.*)$'
 )
 _SEQ_PARTICIPANT_RE = re.compile(r'^participant\s+(\w[\w\s]*)(?:\s+as\s+(.+))?$')
 _SEQ_ACTOR_RE = re.compile(r'^actor\s+(\w[\w\s]*)(?:\s+as\s+(.+))?$')
