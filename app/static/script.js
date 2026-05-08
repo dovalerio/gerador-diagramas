@@ -236,3 +236,93 @@ function announceForScreenReader(message) {
 if (!navigator.clipboard || !navigator.clipboard.write) {
     document.getElementById('copy-diagram').style.display = 'none';
 }
+
+// ── v2: SVG presentation mode ─────────────────────────────────────────────────
+
+PresentationMode.mount(document.getElementById('v2-svg-viewport'));
+NodeTree.mount(document.getElementById('v2-tree'));
+
+document.getElementById('v2-renderizar').addEventListener('click', () => {
+    const source = document.getElementById('v2-source').value.trim();
+    if (!source) {
+        showV2Error('Por favor, insira código Mermaid ou YAML.');
+        return;
+    }
+    showStatus('v2-loader', true);
+    document.getElementById('v2-error').style.display = 'none';
+
+    fetch('/api/v2/render', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source }),
+    })
+    .then(r => r.json())
+    .then(data => {
+        showStatus('v2-loader', false);
+        if (data.error) { showV2Error(data.error); return; }
+        displayV2Diagram(data);
+    })
+    .catch(err => {
+        showStatus('v2-loader', false);
+        showV2Error('Erro na requisição: ' + err.message);
+    });
+});
+
+document.getElementById('v2-gerar-mermaid').addEventListener('click', () => {
+    const prompt = document.getElementById('v2-ai-prompt').value.trim();
+    if (prompt.length < 5) {
+        document.getElementById('v2-ai-error').textContent = 'Por favor, forneça uma descrição.';
+        document.getElementById('v2-ai-error').style.display = 'block';
+        return;
+    }
+    showStatus('v2-ai-loader', true);
+    document.getElementById('v2-ai-error').style.display = 'none';
+
+    fetch('/api/v2/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+    })
+    .then(r => r.json())
+    .then(data => {
+        showStatus('v2-ai-loader', false);
+        if (data.error) {
+            document.getElementById('v2-ai-error').textContent = data.error;
+            document.getElementById('v2-ai-error').style.display = 'block';
+            return;
+        }
+        document.getElementById('v2-source').value = data.mermaid || '';
+        displayV2Diagram(data);
+        A11y.announce('Diagrama gerado com sucesso.');
+    })
+    .catch(err => {
+        showStatus('v2-ai-loader', false);
+        document.getElementById('v2-ai-error').textContent = 'Erro: ' + err.message;
+        document.getElementById('v2-ai-error').style.display = 'block';
+    });
+});
+
+function displayV2Diagram(data) {
+    const panel   = document.getElementById('v2-presentation');
+    const altEl   = document.getElementById('v2-alt-desc');
+    const viewport = document.getElementById('v2-svg-viewport');
+
+    PresentationMode.load(data.svg);
+    NodeTree.render(viewport);
+
+    panel.style.display = 'flex';
+    if (data.alt) {
+        altEl.textContent = data.alt;
+        altEl.style.display = 'block';
+    }
+
+    A11y.announce(`Diagrama ${data.title || ''} renderizado. Use Tab para navegar pelos nós.`);
+    panel.scrollIntoView({ behavior: 'smooth' });
+}
+
+function showV2Error(msg) {
+    const el = document.getElementById('v2-error');
+    el.textContent = msg;
+    el.style.display = 'block';
+    A11y.announce(msg, 'assertive');
+}

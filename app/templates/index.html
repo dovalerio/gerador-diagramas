@@ -57,6 +57,50 @@
         </div>
     </div>
 
+    <!-- ── v2: Mermaid / SVG ───────────────────────────────────────────────── -->
+    <div class="v2-area" role="region" aria-labelledby="v2-section-title">
+        <h2 id="v2-section-title">Diagrama SVG (v2)</h2>
+
+        <div class="ai-prompt-area" role="region" aria-labelledby="v2-ai-title">
+            <h3 id="v2-ai-title">Gerar Mermaid com IA</h3>
+            <label for="v2-ai-prompt">Descreva o diagrama:</label>
+            <textarea id="v2-ai-prompt" rows="3"
+                placeholder="Ex: sistema de e-commerce com frontend, API e banco de dados"
+                aria-describedby="v2-ai-help"></textarea>
+            <div id="v2-ai-help" class="help-text">A IA gerará Mermaid, que aparecerá no campo abaixo.</div>
+            <button id="v2-gerar-mermaid" class="ai-button" type="button">Gerar Mermaid com IA</button>
+            <div class="status-container">
+                <div class="loader"         id="v2-ai-loader"  role="status" aria-live="assertive" style="display:none;">Gerando…</div>
+                <div class="error-message"  id="v2-ai-error"   role="status" aria-live="assertive" style="display:none;"></div>
+            </div>
+        </div>
+
+        <label for="v2-source">Código Mermaid ou YAML:</label>
+        <textarea id="v2-source" rows="8" aria-describedby="v2-source-help"
+            placeholder="flowchart LR&#10;  A[Cliente] --> B[API]&#10;  B --> C[(DB)]"></textarea>
+        <div id="v2-source-help" class="help-text">Cole Mermaid (flowchart, sequenceDiagram, classDiagram) ou YAML existente.</div>
+
+        <button id="v2-renderizar" class="v2-button" type="button">Renderizar SVG</button>
+
+        <div class="status-container">
+            <div class="loader"         id="v2-loader"  role="status" aria-live="assertive" style="display:none;">Renderizando…</div>
+            <div class="error-message"  id="v2-error"   role="status" aria-live="assertive" style="display:none;"></div>
+        </div>
+
+        <!-- Presentation panel: SVG + node tree -->
+        <div class="presentation-panel" id="v2-presentation" style="display:none;">
+            <div class="svg-viewport" id="v2-svg-viewport" aria-label="Área do diagrama SVG"></div>
+            <nav class="tree-panel" id="v2-tree" aria-label="Navegação pelos nós do diagrama"></nav>
+        </div>
+
+        <div id="v2-alt-desc" role="region" aria-label="Descrição alternativa" style="display:none;"
+             class="help-text"></div>
+    </div>
+
+    <script src="{{ url_for('static', filename='state.js') }}"></script>
+    <script src="{{ url_for('static', filename='accessibility.js') }}"></script>
+    <script src="{{ url_for('static', filename='tree.js') }}"></script>
+    <script src="{{ url_for('static', filename='presentation.js') }}"></script>
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 

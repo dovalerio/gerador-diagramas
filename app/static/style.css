@@ -199,8 +199,95 @@ button:focus {
     border: 0;
 }
 
+/* ── v2 Presentation mode ──────────────────────────────────────────────────── */
+
+.v2-area {
+    margin-bottom: 30px;
+    padding: 15px;
+    border: 1px solid #c7d2fe;
+    border-radius: 4px;
+    background-color: #f0f4ff;
+}
+
+.v2-area h2 { border-bottom-color: #818cf8; }
+
+.presentation-panel {
+    display: flex;
+    gap: 16px;
+    margin-top: 16px;
+    align-items: flex-start;
+}
+
+.svg-viewport {
+    flex: 1 1 auto;
+    overflow: auto;
+    border: 1px solid #e5e7eb;
+    border-radius: 4px;
+    background: #fff;
+    min-height: 200px;
+    padding: 4px;
+}
+
+.svg-viewport svg { display: block; max-width: 100%; }
+
+/* Node focus/hover ring inside SVG */
+.svg-viewport g[data-node-id]:focus {
+    outline: 2px solid #2563EB;
+    outline-offset: 2px;
+}
+
+.tree-panel {
+    flex: 0 0 200px;
+    border: 1px solid #e5e7eb;
+    border-radius: 4px;
+    background: #fff;
+    overflow: auto;
+    max-height: 400px;
+    padding: 8px;
+}
+
+.tree-panel ul[role=tree] {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.tree-panel li[role=treeitem] {
+    padding: 6px 8px;
+    cursor: pointer;
+    border-radius: 3px;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tree-panel li[role=treeitem]:hover {
+    background: #eff6ff;
+}
+
+.tree-panel li[role=treeitem][aria-selected=true] {
+    background: #dbeafe;
+    font-weight: bold;
+    color: #1d4ed8;
+}
+
+.tree-panel li[role=treeitem]:focus {
+    outline: 2px solid #2563EB;
+    outline-offset: 1px;
+}
+
+.v2-button {
+    background-color: #4f46e5;
+}
+
+.v2-button:hover { background-color: #4338ca; }
+
 /* Media queries para responsividade */
 @media screen and (max-width: 600px) {
+    .presentation-panel { flex-direction: column; }
+    .tree-panel { flex: none; width: 100%; max-height: 160px; }
+}
     body {
         margin: 10px;
     }
