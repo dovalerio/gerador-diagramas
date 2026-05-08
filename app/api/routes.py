@@ -5,7 +5,7 @@ import uuid
 import os
 from flask import Blueprint, request, jsonify, render_template, send_from_directory
 
-from config.settings import UPLOAD_FOLDER, OPENAI_API_KEY
+from config.settings import UPLOAD_FOLDER, OPENROUTER_API_KEY
 from core.diagram_manager import generate_diagram
 from core.ai_service import generate_yaml_from_prompt
 
@@ -74,8 +74,8 @@ def generate_yaml_route():
     """
     try:
         # Verificar se a chave API está disponível
-        if not OPENAI_API_KEY:
-            return jsonify({'error': 'Chave da API OpenAI não está configurada. Recursos de IA estão indisponíveis.'}), 503
+        if not OPENROUTER_API_KEY:
+            return jsonify({'error': 'Chave da API OpenRouter não está configurada. Recursos de IA estão indisponíveis.'}), 503
             
         prompt = request.json['prompt']
         if not prompt or not prompt.strip():
