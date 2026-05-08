@@ -1,5 +1,7 @@
 """
 Rotas da API para geração de diagramas.
+v1: YAML → PNG (existing flow, unchanged)
+v2: Mermaid or YAML → SVG (new accessible pipeline)
 """
 import uuid
 import os
@@ -8,6 +10,12 @@ from flask import Blueprint, request, jsonify, render_template, send_from_direct
 from config.settings import UPLOAD_FOLDER, OPENROUTER_API_KEY
 from core.diagram_manager import generate_diagram
 from core.ai_service import generate_yaml_from_prompt
+from services.diagram_service import DiagramService
+from llm.client import LLMClient
+from llm.prompt_builder import build_mermaid_prompt
+from config.settings import OPENROUTER_API_KEY, OPENROUTER_BASE_URL, OPENROUTER_MODEL
+
+_diagram_service = DiagramService()
 
 
 api_bp = Blueprint('api', __name__)
@@ -92,13 +100,66 @@ def generate_yaml_route():
 
 @api_bp.route('/static/uploads/<filename>')
 def serve_diagram_file(filename):
-    """
-    Serve arquivos de diagrama gerados a partir do diretório de uploads.
-    
-    Args:
-        filename (str): Nome do arquivo a ser servido
-        
-    Returns:
-        Resposta de arquivo
-    """
     return send_from_directory(UPLOAD_FOLDER, filename)
+
+
+# ── API v2 ────────────────────────────────────────────────────────────────────
+
+@api_bp.route('/api/v2/render', methods=['POST'])
+def v2_render():
+    """
+    Render Mermaid or YAML source to accessible SVG.
+
+    Request JSON: { "source": "<mermaid or yaml string>" }
+    Response JSON: { "svg": "...", "title": "...", "alt": "..." }
+    """
+    body = request.get_json(silent=True) or {}
+    source = body.get('source', '').strip()
+    if not source:
+        return jsonify({'error': 'Field "source" is required and must not be empty'}), 400
+
+    try:
+        result = _diagram_service.generate(source)
+        return jsonify({'svg': result.svg, 'title': result.title, 'alt': result.alt})
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except Exception as exc:
+        return jsonify({'error': f'Rendering failed: {exc}'}), 500
+
+
+@api_bp.route('/api/v2/generate', methods=['POST'])
+def v2_generate():
+    """
+    Generate Mermaid from a natural-language prompt, then render to SVG.
+
+    Request JSON: { "prompt": "<description>" }
+    Response JSON: { "mermaid": "...", "svg": "...", "title": "...", "alt": "..." }
+    """
+    if not OPENROUTER_API_KEY:
+        return jsonify({'error': 'OPENROUTER_API_KEY is not configured'}), 503
+
+    body = request.get_json(silent=True) or {}
+    prompt = body.get('prompt', '').strip()
+    if not prompt:
+        return jsonify({'error': 'Field "prompt" is required and must not be empty'}), 400
+
+    try:
+        llm = LLMClient(
+            api_key=OPENROUTER_API_KEY,
+            base_url=OPENROUTER_BASE_URL,
+            model=OPENROUTER_MODEL,
+        )
+        system_p, user_p = build_mermaid_prompt(prompt)
+        mermaid_source = llm.complete(system_p, user_p).strip()
+
+        result = _diagram_service.generate(mermaid_source)
+        return jsonify({
+            'mermaid': mermaid_source,
+            'svg': result.svg,
+            'title': result.title,
+            'alt': result.alt,
+        })
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except Exception as exc:
+        return jsonify({'error': f'Generation failed: {exc}'}), 500
