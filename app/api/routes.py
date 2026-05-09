@@ -3,9 +3,13 @@ Rotas da API para geração de diagramas.
 v1: YAML → PNG (existing flow, unchanged)
 v2: Mermaid or YAML → SVG (new accessible pipeline)
 """
+import logging
 import uuid
 import os
 from flask import Blueprint, request, jsonify, render_template, send_from_directory
+from openai import RateLimitError, NotFoundError, APIStatusError
+
+log = logging.getLogger(__name__)
 
 from config.settings import UPLOAD_FOLDER, OPENROUTER_API_KEY
 from core.diagram_manager import generate_diagram
@@ -13,7 +17,7 @@ from core.ai_service import generate_yaml_from_prompt
 from services.diagram_service import DiagramService
 from llm.client import LLMClient
 from llm.prompt_builder import build_mermaid_prompt
-from config.settings import OPENROUTER_API_KEY, OPENROUTER_BASE_URL, OPENROUTER_MODEL
+from config.settings import OPENROUTER_API_KEY, OPENROUTER_BASE_URL, OPENROUTER_MODEL, OPENROUTER_FALLBACK_MODELS
 
 _diagram_service = DiagramService()
 
@@ -71,30 +75,49 @@ def generate_diagram_route():
 def generate_yaml_route():
     """
     Gera YAML a partir de descrição textual usando IA.
-    
+
     Formato JSON da requisição:
         {
-            "prompt": "Descrição do diagrama desejado"
+            "prompt": "Descrição do diagrama desejado",
+            "model": "google/gemma-4-31b-it:free",           (opcional)
+            "fallback_models": ["meta-llama/llama-3.2-3b-instruct:free"]  (opcional)
         }
-    
+
+    Se `model` for omitido, usa OPENROUTER_MODEL do ambiente.
+    Tenta cada fallback em ordem caso o modelo principal retorne 429 ou 404.
+
     Returns:
-        Resposta JSON com YAML gerado, ou erro
+        { "yaml": "...", "model_used": "..." }
     """
+    if not OPENROUTER_API_KEY:
+        return jsonify({'error': 'Chave da API OpenRouter não está configurada. Recursos de IA estão indisponíveis.'}), 503
+
+    body = request.get_json(silent=True) or {}
+    prompt = body.get('prompt', '').strip()
+    if not prompt:
+        return jsonify({'error': 'Campo prompt ausente ou vazio na requisição'}), 400
+
+    model = body.get('model') or None
+    fallback_models = body.get('fallback_models') or []
+
     try:
-        # Verificar se a chave API está disponível
-        if not OPENROUTER_API_KEY:
-            return jsonify({'error': 'Chave da API OpenRouter não está configurada. Recursos de IA estão indisponíveis.'}), 503
-            
-        prompt = request.json['prompt']
-        if not prompt or not prompt.strip():
-            return jsonify({'error': 'Nenhum prompt fornecido'}), 400
-            
-        yaml_content = generate_yaml_from_prompt(prompt)
-        return jsonify({'yaml': yaml_content})
-        
-    except KeyError:
-        return jsonify({'error': 'Campo prompt ausente na requisição'}), 400
+        yaml_content, model_used = generate_yaml_from_prompt(prompt, model, fallback_models)
+        return jsonify({'yaml': yaml_content, 'model_used': model_used})
+
+    except RateLimitError:
+        log.warning("Todos os modelos atingiram rate limit em /generate_yaml")
+        return jsonify({'error': 'Todos os modelos estão com rate limit. Tente novamente em instantes.'}), 429
+    except NotFoundError:
+        log.error("Nenhum modelo encontrado — verifique os IDs informados")
+        return jsonify({'error': 'Modelo de IA não encontrado. Verifique os IDs de modelo informados.'}), 503
+    except APIStatusError as e:
+        if e.status_code == 402:
+            log.error("Limite de gasto da chave API atingido em todos os modelos")
+            return jsonify({'error': 'Limite de gasto da chave API atingido. Verifique o spending limit no OpenRouter.'}), 402
+        log.exception("Erro de API inesperado em /generate_yaml")
+        return jsonify({'error': f"Erro de API: {str(e)}"}), 500
     except Exception as e:
+        log.exception("Erro inesperado na rota /generate_yaml")
         return jsonify({'error': f"Erro ao processar requisição: {str(e)}"}), 500
 
 
@@ -143,11 +166,15 @@ def v2_generate():
     if not prompt:
         return jsonify({'error': 'Field "prompt" is required and must not be empty'}), 400
 
+    model = body.get('model') or OPENROUTER_MODEL
+    fallback_models = body.get('fallback_models') or OPENROUTER_FALLBACK_MODELS
+
     try:
         llm = LLMClient(
             api_key=OPENROUTER_API_KEY,
             base_url=OPENROUTER_BASE_URL,
-            model=OPENROUTER_MODEL,
+            model=model,
+            fallback_models=fallback_models,
         )
         system_p, user_p = build_mermaid_prompt(prompt)
         mermaid_source = llm.complete(system_p, user_p).strip()
@@ -161,5 +188,9 @@ def v2_generate():
         })
     except ValueError as exc:
         return jsonify({'error': str(exc)}), 400
+    except RuntimeError as exc:
+        log.error("Todos os modelos falharam em /api/v2/generate: %s", exc)
+        return jsonify({'error': 'Serviço de IA temporariamente indisponível. Tente novamente em instantes.'}), 429
     except Exception as exc:
+        log.exception("Erro inesperado em /api/v2/generate")
         return jsonify({'error': f'Generation failed: {exc}'}), 500

@@ -10,7 +10,11 @@ UPLOAD_FOLDER = os.path.join(BASE_DIR, 'static', 'uploads')
 
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
 OPENROUTER_BASE_URL = os.getenv('OPENROUTER_BASE_URL', 'https://openrouter.ai/api/v1')
-OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', 'meta-llama/llama-3.3-70b-instruct:free')
+OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', 'google/gemma-4-31b-it:free')
+
+# Comma-separated list of fallback models tried in order when the primary is unavailable
+_fallback_raw = os.getenv('OPENROUTER_FALLBACK_MODELS', '')
+OPENROUTER_FALLBACK_MODELS: list[str] = [m.strip() for m in _fallback_raw.split(',') if m.strip()]
 
 if not OPENROUTER_API_KEY:
     print("AVISO: OPENROUTER_API_KEY não está definida. As funcionalidades de IA estarão indisponíveis.")

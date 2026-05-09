@@ -24,50 +24,40 @@ document.getElementById('gerar-yaml').addEventListener('click', () => {
 function fetchYamlFromAI(prompt) {
     fetch('/generate_yaml', {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: prompt })
     })
-    .then(response => {
-        if (!response.ok) {
-            // Tratamento específico para códigos de status
-            if (response.status === 503) {
-                throw new Error('Chave da API OpenAI não configurada. Recursos de IA indisponíveis.');
-            }
-            throw new Error('Falha na requisição');
-        }
-        return response.json();
-    })
-    .then(data => {
-        // Esconder loader
+    .then(response => response.json().then(data => ({ status: response.status, data })))
+    .then(({ status, data }) => {
         showStatus('ai-loader', false);
-        
-        if (data.error) {
-            showError('ai-error', "Erro ao gerar YAML: " + data.error);
-        } else {
-            // Mostrar mensagem de sucesso
-            showStatus('ai-success', true);
-            // Preencher área YAML com resultado
-            document.getElementById('yaml-input').value = data.yaml;
-            
-            // Anunciar para leitores de tela
-            announceForScreenReader("YAML gerado com sucesso e inserido no campo de edição.");
-            
-            // Rolar até a área de edição de YAML
-            document.getElementById('yaml-input').scrollIntoView({ behavior: 'smooth' });
-            
-            // Depois de um tempo, esconder a mensagem de sucesso
-            setTimeout(() => {
-                showStatus('ai-success', false);
-            }, 3000);
+
+        if (status === 429) {
+            showError('ai-error', 'Os modelos de IA estão sobrecarregados. Aguarde alguns instantes e tente novamente.');
+            return;
         }
+        if (status === 402) {
+            showError('ai-error', 'Limite de uso da API atingido. Verifique as configurações da chave OpenRouter.');
+            return;
+        }
+        if (status === 503) {
+            showError('ai-error', 'Serviço de IA indisponível. A chave da API não está configurada.');
+            return;
+        }
+        if (data.error) {
+            showError('ai-error', 'Erro ao gerar YAML: ' + data.error);
+            return;
+        }
+
+        showStatus('ai-success', true);
+        document.getElementById('yaml-input').value = data.yaml;
+        announceForScreenReader('YAML gerado com sucesso e inserido no campo de edição.');
+        document.getElementById('yaml-input').scrollIntoView({ behavior: 'smooth' });
+        setTimeout(() => showStatus('ai-success', false), 3000);
     })
     .catch(error => {
-        // Esconder loader
         showStatus('ai-loader', false);
         console.error('Erro na requisição:', error);
-        showError('ai-error', 'Ocorreu um erro: ' + error.message);
+        showError('ai-error', 'Ocorreu um erro de conexão. Verifique sua internet e tente novamente.');
     });
 }
 
@@ -283,12 +273,19 @@ document.getElementById('v2-gerar-mermaid').addEventListener('click', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt }),
     })
-    .then(r => r.json())
-    .then(data => {
+    .then(r => r.json().then(data => ({ status: r.status, data })))
+    .then(({ status, data }) => {
         showStatus('v2-ai-loader', false);
+        if (status === 429) {
+            showV2Error('Os modelos de IA estão sobrecarregados. Aguarde alguns instantes e tente novamente.');
+            return;
+        }
+        if (status === 402) {
+            showV2Error('Limite de uso da API atingido. Verifique as configurações da chave OpenRouter.');
+            return;
+        }
         if (data.error) {
-            document.getElementById('v2-ai-error').textContent = data.error;
-            document.getElementById('v2-ai-error').style.display = 'block';
+            showV2Error(data.error);
             return;
         }
         document.getElementById('v2-source').value = data.mermaid || '';
@@ -297,8 +294,7 @@ document.getElementById('v2-gerar-mermaid').addEventListener('click', () => {
     })
     .catch(err => {
         showStatus('v2-ai-loader', false);
-        document.getElementById('v2-ai-error').textContent = 'Erro: ' + err.message;
-        document.getElementById('v2-ai-error').style.display = 'block';
+        showV2Error('Erro de conexão: ' + err.message);
     });
 });
 
